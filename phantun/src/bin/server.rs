@@ -52,7 +52,7 @@ async fn main() -> io::Result<()> {
                 .required(false)
                 .value_name("IP")
                 .help("Sets the Tun interface local address (O/S's end)")
-                .default_value("192.168.201.1")
+                .default_value("169.254.1.0")
         )
         .arg(
             Arg::new("tun_peer")
@@ -62,7 +62,7 @@ async fn main() -> io::Result<()> {
                 .help("Sets the Tun interface destination (peer) address (Phantun Server's end). \
                        You will need to setup DNAT rules to this address in order for Phantun Server \
                        to accept TCP traffic from Phantun Client")
-                .default_value("192.168.201.2")
+                .default_value("169.254.1.1")
         )
         .arg(
             Arg::new("ipv4_only")
@@ -79,7 +79,7 @@ async fn main() -> io::Result<()> {
                 .required(false)
                 .value_name("IP")
                 .help("Sets the Tun interface IPv6 local address (O/S's end)")
-                .default_value("fcc9::1")
+                .default_value("fea0::1")
         )
         .arg(
             Arg::new("tun_peer6")
@@ -89,7 +89,7 @@ async fn main() -> io::Result<()> {
                 .help("Sets the Tun interface IPv6 destination (peer) address (Phantun Client's end). \
                        You will need to setup SNAT/MASQUERADE rules on your Internet facing interface \
                        in order for Phantun Client to connect to Phantun Server")
-                .default_value("fcc9::2")
+                .default_value("fea0::2")
         )
         .arg(
             Arg::new("handshake_packet")
@@ -155,6 +155,7 @@ async fn main() -> io::Result<()> {
         .up() // or set it up manually using `sudo ip link set <tun-name> up`.
         .address(tun_local)
         .destination(tun_peer)
+        .netmask(Ipv4Addr::new(255, 255, 255, 255))
         .queues(num_cpus)
         .build()
         .unwrap();
