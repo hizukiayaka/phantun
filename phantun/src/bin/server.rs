@@ -101,6 +101,13 @@ async fn main() -> io::Result<()> {
                       Note: ensure this file's size does not exceed the MTU of the outgoing interface. \
                       The content is always sent out in a single packet and will not be further segmented")
         )
+        .arg(
+            Arg::new("xor")
+                .long("xor")
+                .required(false)
+                .value_name("start offset,end offset:xor values")
+                .help("Sets the start and end offsets and the XOR values in the format: <start offset>,<end offset>:<xor values>")
+        )
         .get_matches();
 
     let local_port: u16 = matches
@@ -149,6 +156,35 @@ async fn main() -> io::Result<()> {
 
     let num_cpus = num_cpus::get();
     info!("{} cores available", num_cpus);
+
+    let mut start_offset = 0;
+    let mut end_offset = usize::MAX;
+    let mut xor_values: Option<Vec<u8>> = None;
+    let mut perform_xor = false;
+
+    if let Some(xor) = matches.get_one::<String>("xor") {
+        let parts: Vec<&str> = xor.split(':').collect();
+        if parts.len() == 2 {
+            let offsets: Vec<&str> = parts[0].split(',').collect();
+            if offsets.len() == 2 {
+                start_offset = offsets[0].parse().unwrap_or(0);
+                end_offset = offsets[1].parse().unwrap_or(usize::MAX);
+            } else if offsets.len() == 1 {
+                end_offset = offsets[0].parse().unwrap_or(usize::MAX);
+            }
+            xor_values = Some(
+                parts[1]
+                    .split(',')
+                    .map(|v| v.parse().expect("Invalid XOR value"))
+                    .collect(),
+            );
+            if let Some(ref values) = xor_values {
+                perform_xor = !values.iter().all(|&x| x == 0);
+            }
+        } else {
+            eprintln!("Invalid XOR argument format");
+        }
+    }
 
     let tun = TunBuilder::new()
         .name(tun_name) // if name is empty, then it is set by kernel.
@@ -203,6 +239,7 @@ async fn main() -> io::Result<()> {
                 let sock = sock.clone();
                 let quit = quit.clone();
                 let packet_received = packet_received.clone();
+                let xor_values = xor_values.clone();
                 let udp_sock = new_udp_reuseport(local_addr);
 
                 tokio::spawn(async move {
@@ -211,6 +248,14 @@ async fn main() -> io::Result<()> {
                     loop {
                         tokio::select! {
                             Ok(size) = udp_sock.recv(&mut buf_udp) => {
+                                // XOR processing before sending
+                                if perform_xor {
+                                    if let Some(ref xor_values) = xor_values {
+                                        for i in start_offset..end_offset.min(size) {
+                                            buf_udp[i] ^= xor_values[i % xor_values.len()];
+                                        }
+                                    }
+                                }
                                 if sock.send(&buf_udp[..size]).await.is_none() {
                                     quit.cancel();
                                     return;
@@ -222,6 +267,14 @@ async fn main() -> io::Result<()> {
                                 match res {
                                     Some(size) => {
                                         if size > 0 {
+                                            // XOR processing after receiving
+                                            if perform_xor {
+                                                if let Some(ref xor_values) = xor_values {
+                                                    for i in start_offset..end_offset.min(size) {
+                                                        buf_tcp[i] ^= xor_values[i % xor_values.len()];
+                                                    }
+                                                }
+                                            }
                                             if let Err(e) = udp_sock.send(&buf_tcp[..size]).await {
                                                 error!("Unable to send UDP packet to {}: {}, closing connection", e, remote_addr);
                                                 quit.cancel();
