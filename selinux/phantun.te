@@ -1,0 +1,106 @@
+policy_module(phantun, 1.0)
+
+gen_require(`
+    type wireguard_t;
+    type tun_tap_device_t;
+    class capability net_admin;
+    class tun_socket { append bind connect create getattr getopt ioctl lock read relabelfrom relabelto setattr setopt shutdown write };
+    class tcp_socket { name_bind listen accept connect };
+    class udp_socket { name_bind };
+    class chr_file { open ioctl };
+    class file { getattr open read write create unlink execute };
+    class process { transition };
+')
+
+
+# Define custom types
+type phantun_server_t;
+type phantun_server_exec_t;
+
+type phantun_client_t;
+type phantun_client_exec_t;
+
+type phantun_runtime_t;
+
+domain_type(phantun_server_t)
+domain_entry_file(phantun_server_t, phantun_server_exec_t)
+role system_r types phantun_server_t;
+
+domain_type(phantun_client_t)
+domain_entry_file(phantun_client_t, phantun_client_exec_t)
+role system_r types phantun_client_t;
+
+files_pid_file(phantun_runtime_t)
+
+# Allow the wrapper scripts to execute the phantun client and server binaries
+can_exec(phantun_server_t, phantun_server_exec_t)
+can_exec(phantun_client_t, phantun_client_exec_t)
+
+# Allow the wrapper scripts to write to the PID file
+allow phantun_server_t phantun_runtime_t:dir manage_dir_perms;
+allow phantun_server_t phantun_runtime_t:file manage_file_perms;
+files_pid_filetrans(phantun_server_t, phantun_runtime_t, dir)
+
+# Allow phantun_server_t to execute and map /usr/bin/mkdir without transitioning
+corecmd_exec_bin(phantun_server_t)
+corenet_rw_tun_tap_dev(phantun_server_t)
+corenet_udp_bind_generic_node(phantun_server_t)
+fs_search_cgroup_dirs(phantun_server_t)
+fs_getattr_cgroup_files(phantun_server_t)
+
+# Allow wireguard_t to perform operations on /proc entries related to phantun_server_t
+allow wireguard_t phantun_server_t:dir { getattr search open };
+allow wireguard_t phantun_server_t:file { read open };
+
+# client
+allow phantun_client_t phantun_runtime_t:dir manage_dir_perms;
+allow phantun_client_t phantun_runtime_t:file manage_file_perms;
+files_pid_filetrans(phantun_client_t, phantun_runtime_t, dir)
+
+corecmd_exec_bin(phantun_client_t)
+corenet_rw_tun_tap_dev(phantun_client_t)
+corenet_udp_bind_generic_node(phantun_client_t)
+fs_search_cgroup_dirs(phantun_client_t)
+fs_getattr_cgroup_files(phantun_client_t)
+
+# Allow wireguard_t to perform operations on /proc entries related to phantun_client_t
+allow wireguard_t phantun_client_t:dir { getattr search open };
+allow wireguard_t phantun_client_t:file { read open };
+fs_search_cgroup_dirs(phantun_client_t)
+####################################
+# Server
+#
+
+# Allow wireguard_t to execute the server binary
+domtrans_pattern(wireguard_t, phantun_server_exec_t, phantun_server_t)
+
+# Allow the server to create and manage tun devices
+allow phantun_server_t tun_tap_device_t:chr_file { open ioctl };
+allow phantun_server_t self:tun_socket { append bind connect create getattr getopt ioctl lock read relabelfrom relabelto setattr setopt shutdown write };
+
+# Allow the server to bind to the custom UDP port
+allow phantun_server_t self:udp_socket { create connect bind ioctl getattr name_bind recv_msg send_msg setopt};
+
+# Allow the server to use net_admin capability
+allow phantun_server_t self:capability net_admin;
+allow phantun_server_t self:netlink_route_socket create_netlink_socket_perms;
+allow phantun_server_t self:unix_dgram_socket { create_socket_perms sendto };
+
+####################################
+# Client
+#
+
+# Allow wireguard_t to execute the client binary
+domtrans_pattern(wireguard_t, phantun_client_exec_t, phantun_client_t)
+
+# Allow the client to create and manage tun devices
+allow phantun_client_exec_t tun_tap_device_t:chr_file { open ioctl };
+allow phantun_client_exec_t self:tun_socket { append bind connect create getattr getopt ioctl lock read relabelfrom relabelto setattr setopt shutdown write };
+
+# Allow the client to bind to the custom UDP port
+allow phantun_client_exec_t self:udp_socket { create connect bind ioctl getattr name_bind recv_msg send_msg setopt};
+
+# Allow the client to use net_admin capability
+allow phantun_client_exec_t self:capability net_admin;
+allow phantun_client_exec_t self:netlink_route_socket create_netlink_socket_perms;
+allow phantun_client_exec_t self:unix_dgram_socket { create_socket_perms sendto };
