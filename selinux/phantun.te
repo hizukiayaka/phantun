@@ -1,0 +1,57 @@
+module phantun 1.0;
+
+require {
+    type wireguard_t;
+    type wireguard_exec_t;
+    type tun_t;
+    class capability net_admin;
+    class netif_tun { create ioctl };
+    class tcp_socket { name_bind listen accept };
+    class udp_socket { name_bind };
+    class file { execute execute_no_trans };
+    type phantun_server_t;
+    type phantun_client_t;
+}
+
+# Define custom port types
+type phantun_server_port_t;
+type phantun_client_port_t;
+
+# Define custom file type for PID file
+type phantun_var_run_t;
+files_type(phantun_var_run_t)
+
+# Allow WireGuard to write to the PID file
+allow wireguard_t phantun_var_run_t:file { write create };
+
+####################################
+# Server
+#
+
+# Allow wireguard_t to execute the server binary
+allow wireguard_t wireguard_exec_t:file { execute execute_no_trans };
+
+# Allow the server to create and manage tun devices
+allow wireguard_t tun_t:netif_tun { create ioctl };
+
+# Allow the server to bind to the custom TCP port and listen for incoming connections
+allow wireguard_t phantun_server_port_t:tcp_socket { name_bind listen accept };
+
+# Allow the server to use net_admin capability
+allow wireguard_t self:capability net_admin;
+
+####################################
+# Client
+#
+
+# Allow wireguard_t to execute the client binary
+allow wireguard_t wireguard_exec_t:file { execute execute_no_trans };
+
+# Allow the client to create and manage tun devices
+allow wireguard_t tun_t:netif_tun { create ioctl };
+
+# Allow the client to bind to the custom UDP port
+allow wireguard_t phantun_client_port_t:udp_socket name_bind;
+
+# Allow the client to use net_admin capability
+allow wireguard_t self:capability net_admin;
