@@ -45,6 +45,8 @@ Summary:        SELinux module for phantun
 This package provides the SELinux policy module to ensure phantun
 runs properly under an environment with SELinux enabled.
 
+%global debug_package %{nil}
+
 %prep
 %setup -q
 
@@ -57,16 +59,19 @@ make -C selinux
 install -D -m 0755 target/release/client %{buildroot}/usr/libexec/phantun/phantun-client
 install -D -m 0755 target/release/server %{buildroot}/usr/libexec/phantun/phantun-server
 
+mkdir -p %{buildroot}/usr/bin
 # Create wrapper scripts
 echo '#!/bin/bash
 PID_FILE=$1
 shift 1
+mkdir -p /var/run/phantun
 /usr/libexec/phantun/phantun-client "$@" &
 echo $! > /var/run/phantun/${PID_FILE}' > %{buildroot}/usr/bin/phantun-client
 
 echo '#!/bin/bash
 PID_FILE=$1
 shift 1
+mkdir -p /var/run/phantun
 /usr/libexec/phantun/phantun-server "$@" &
 echo $! > /var/run/phantun/${PID_FILE}' > %{buildroot}/usr/bin/phantun-server
 
@@ -76,7 +81,7 @@ chmod +x %{buildroot}/usr/bin/phantun-server
 
 # SELinux
 install -d %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
-install -m 0644 %{modulename}.pp.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
+install -m 0644 selinux/%{modulename}.pp.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -92,8 +97,6 @@ fi
 %posttrans selinux
 %selinux_relabel_post -s %{selinuxtype}
 
-%files
-
 %files client
 /usr/libexec/phantun/phantun-client
 /usr/bin/phantun-client
@@ -101,6 +104,9 @@ fi
 %files server
 /usr/libexec/phantun/phantun-server
 /usr/bin/phantun-server
+
+%files selinux
+%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 
 %changelog
 * Thu Oct 14 2023 Randy Li <ayaka@soulik.info> - 0.6.1-1
