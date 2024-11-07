@@ -175,8 +175,8 @@ async fn main() -> io::Result<()> {
             }
             xor_values = Some(
                 parts[1]
-                    .split(',')
-                    .map(|v| v.parse().expect("Invalid XOR value"))
+                    .chars()
+                    .map(|c| c as u8)
                     .collect(),
             );
             if let Some(ref values) = xor_values {
