@@ -6,7 +6,7 @@ use phantun::utils::{assign_ipv6_address, new_udp_reuseport};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv6Addr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::sync::{Notify, RwLock};
 use tokio::time;
@@ -103,13 +103,20 @@ async fn main() -> io::Result<()> {
         )
         .get_matches();
 
-    let local_addr: SocketAddr = matches
-        .get_one::<String>("local")
-        .unwrap()
-        .parse()
-        .expect("bad local address");
-
     let ipv4_only = matches.get_flag("ipv4_only");
+    let local_arg = matches.get_one::<String>("local").unwrap();
+
+    let local_addr: SocketAddr = if local_arg.chars().all(|c| c.is_numeric()) {
+        let port: u16 = local_arg.parse().expect("invalid port number");
+        let ip = if ipv4_only {
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
+        } else {
+            IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))
+        };
+        SocketAddr::new(ip, port)
+    } else {
+        local_arg.parse().expect("bad local address")
+    };
 
     let remote_addr = tokio::net::lookup_host(matches.get_one::<String>("remote").unwrap())
         .await
@@ -129,7 +136,7 @@ async fn main() -> io::Result<()> {
         .parse()
         .expect("bad peer address for Tun interface");
 
-    let (tun_local6, tun_peer6) = if matches.get_flag("ipv4_only") {
+    let (tun_local6, tun_peer6) = if ipv4_only {
         (None, None)
     } else {
         (
