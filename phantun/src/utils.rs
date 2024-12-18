@@ -5,7 +5,7 @@ use neli::{
         socket::NlFamily,
     },
     nl::{NlPayload, Nlmsghdr},
-    rtnl::{Ifaddrmsg, Rtattr},
+    rtnl::{Ifaddrmsg, Ifinfomsg, Rtattr},
     socket::NlSocketHandle,
     types::RtBuffer,
 };
@@ -56,5 +56,24 @@ pub fn assign_ipv6_address(device_name: &str, local: Ipv6Addr, peer: Ipv6Addr) {
         None,
         NlPayload::Payload(ifaddrmsg),
     );
+    rtnl.send(nl_header).unwrap();
+}
+
+pub fn bring_link_up(device_name: &str) {
+    let index = nix::net::if_::if_nametoindex(device_name).unwrap();
+    let mut rtnl = NlSocketHandle::connect(NlFamily::Route, None, &[]).unwrap();
+
+    let rtattrs = RtBuffer::new();
+    let ifinfomsg = Ifinfomsg::up(RtAddrFamily::Unspecified, neli::consts::rtnl::Arphrd::Ether, index as i32, rtattrs);
+
+    let nl_header = Nlmsghdr::new(
+        None,
+        Rtm::Newlink,
+        NlmFFlags::new(&[NlmF::Request, NlmF::Ack]),
+        None,
+        None,
+        NlPayload::Payload(ifinfomsg),
+    );
+
     rtnl.send(nl_header).unwrap();
 }
