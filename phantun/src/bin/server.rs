@@ -5,7 +5,7 @@ use log::{debug, error, info};
 use phantun::utils::{assign_ipv6_address, new_udp_reuseport};
 use std::fs;
 use std::io;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::Notify;
@@ -35,7 +35,7 @@ async fn main() -> io::Result<()> {
                 .short('r')
                 .long("remote")
                 .required(true)
-                .value_name("IP or HOST NAME:PORT")
+                .value_name("IP and PORT or PORT only for the localhost")
                 .help("Sets the address or host name and port where Phantun Server forwards UDP packets to, IPv6 address need to be specified as: \"[IPv6]:PORT\"")
         )
         .arg(
@@ -109,11 +109,26 @@ async fn main() -> io::Result<()> {
         .parse()
         .expect("bad local port");
 
-    let remote_addr = tokio::net::lookup_host(matches.get_one::<String>("remote").unwrap())
-        .await
-        .expect("bad remote address or host")
-        .next()
-        .expect("unable to resolve remote host name");
+    let remote_arg = matches.get_one::<String>("remote").unwrap();
+    let remote_addr: SocketAddr = if let Ok(port) = remote_arg.parse::<u16>() {
+        // If the argument is a number, connect to localhost with the given port
+        if matches.get_flag("ipv4_only") {
+            format!("127.0.0.1:{}", port)
+                .parse()
+                .expect("bad port number")
+        } else {
+            format!("[::1]:{}", port)
+                .parse()
+                .expect("bad port number")
+        }
+    } else {
+        // Otherwise, resolve the remote host name
+        tokio::net::lookup_host(remote_arg)
+            .await
+            .expect("bad remote address or host")
+            .next()
+            .expect("unable to resolve remote host name")
+    };
 
     info!("Remote address is: {}", remote_addr);
 
