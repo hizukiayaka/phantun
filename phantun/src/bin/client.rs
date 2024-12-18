@@ -177,7 +177,7 @@ async fn main() -> io::Result<()> {
     let udp_sock = Arc::new(new_udp_reuseport(local_addr));
     let connections = Arc::new(RwLock::new(HashMap::<SocketAddr, Arc<Socket>>::new()));
 
-    let mut stack = Stack::new(tun, tun_peer, tun_peer6);
+    let mut stack = Stack::new(tun, Some(tun_peer), tun_peer6);
 
     let main_loop = tokio::spawn(async move {
         let mut buf_r = [0u8; MAX_PACKET_LEN];

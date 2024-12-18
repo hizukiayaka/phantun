@@ -167,7 +167,7 @@ async fn main() -> io::Result<()> {
     info!("Created TUN device {}", tun[0].name());
 
     //thread::sleep(time::Duration::from_secs(5));
-    let mut stack = Stack::new(tun, tun_local, tun_local6);
+    let mut stack = Stack::new(tun, Some(tun_local), tun_local6);
     stack.listen(local_port);
     info!("Listening on {}", local_port);
 
