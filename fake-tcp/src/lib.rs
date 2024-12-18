@@ -90,7 +90,7 @@ struct Shared {
 
 pub struct Stack {
     shared: Arc<Shared>,
-    local_ip: Ipv4Addr,
+    local_ip: Option<Ipv4Addr>,
     local_ip6: Option<Ipv6Addr>,
     ready: mpsc::Receiver<Socket>,
 }
@@ -361,7 +361,7 @@ impl Stack {
     /// When more than one [`Tun`](tokio_tun::Tun) object is passed in, same amount
     /// of reader will be spawned later. This allows user to utilize the performance
     /// benefit of Multiqueue Tun support on machines with SMP.
-    pub fn new(tun: Vec<Tun>, local_ip: Ipv4Addr, local_ip6: Option<Ipv6Addr>) -> Stack {
+    pub fn new(tun: Vec<Tun>, local_ip: Option<Ipv4Addr>, local_ip6: Option<Ipv6Addr>) -> Stack {
         let tun: Vec<Arc<Tun>> = tun.into_iter().map(Arc::new).collect();
         let (ready_tx, ready_rx) = mpsc::channel(MPSC_BUFFER_LEN);
         let (tuples_purge_tx, _tuples_purge_rx) = broadcast::channel(16);
@@ -406,7 +406,7 @@ impl Stack {
         for local_port in rng.gen_range(32768..=60999)..=60999 {
             let local_addr = SocketAddr::new(
                 if addr.is_ipv4() {
-                    IpAddr::V4(self.local_ip)
+                    IpAddr::V4(self.local_ip.expect("IPv4 local address undefined"))
                 } else {
                     IpAddr::V6(self.local_ip6.expect("IPv6 local address undefined"))
                 },
