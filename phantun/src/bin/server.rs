@@ -2,10 +2,10 @@ use clap::{crate_version, Arg, ArgAction, Command};
 use fake_tcp::packet::MAX_PACKET_LEN;
 use fake_tcp::Stack;
 use log::{debug, error, info};
-use phantun::utils::{assign_ipv6_address, new_udp_reuseport};
+use phantun::utils::{assign_ipv6_address, bring_link_up, new_udp_reuseport};
 use std::fs;
 use std::io;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::Notify;
@@ -62,7 +62,6 @@ async fn main() -> io::Result<()> {
                 .help("Sets the Tun interface destination (peer) address (Phantun Server's end). \
                        You will need to setup DNAT rules to this address in order for Phantun Server \
                        to accept TCP traffic from Phantun Client")
-                .default_value("169.254.1.1")
         )
         .arg(
             Arg::new("ipv4_only")
@@ -89,7 +88,6 @@ async fn main() -> io::Result<()> {
                 .help("Sets the Tun interface IPv6 destination (peer) address (Phantun Client's end). \
                        You will need to setup SNAT/MASQUERADE rules on your Internet facing interface \
                        in order for Phantun Client to connect to Phantun Server")
-                .default_value("fea0::2")
         )
         .arg(
             Arg::new("handshake_packet")
@@ -137,23 +135,41 @@ async fn main() -> io::Result<()> {
         .unwrap()
         .parse()
         .expect("bad local address for Tun interface");
-    let tun_peer: Ipv4Addr = matches
-        .get_one::<String>("tun_peer")
-        .unwrap()
-        .parse()
-        .expect("bad peer address for Tun interface");
+    let tun_peer: Ipv4Addr = match matches.get_one::<String>("tun_peer") {
+        Some(peer) if !peer.is_empty() => peer.parse().expect("bad peer address for Tun interface"),
+        _ => {
+            let octets = tun_local.octets();
+            Ipv4Addr::new(octets[0], octets[1], octets[2], octets[3] + 1)
+        }
+    };
 
     let (tun_local6, tun_peer6) = if matches.get_flag("ipv4_only") {
         (None, None)
     } else {
-        (
-            matches
-                .get_one::<String>("tun_local6")
-                .map(|v| v.parse().expect("bad local address for Tun interface")),
-            matches
-                .get_one::<String>("tun_peer6")
-                .map(|v| v.parse().expect("bad peer address for Tun interface")),
-        )
+        let tun_local6 = matches
+            .get_one::<String>("tun_local6")
+            .map(|v| v.parse().expect("bad local address for Tun interface"));
+
+        let tun_peer6 = match matches.get_one::<String>("tun_peer6") {
+            Some(peer) if !peer.is_empty() => {
+                Some(peer.parse().expect("bad peer address for Tun interface"))
+            }
+            _ => tun_local6.map(|local: Ipv6Addr| {
+                let segments = local.segments();
+                Ipv6Addr::new(
+                    segments[0],
+                    segments[1],
+                    segments[2],
+                    segments[3],
+                    segments[4],
+                    segments[5],
+                    segments[6],
+                    segments[7] + 1,
+                )
+            }),
+        };
+
+        (tun_local6, tun_peer6)
     };
 
     let tun_name = matches.get_one::<String>("tun").unwrap();
@@ -165,25 +181,36 @@ async fn main() -> io::Result<()> {
     let num_cpus = num_cpus::get();
     info!("{} cores available", num_cpus);
 
-    let tun = TunBuilder::new()
-        .name(tun_name) // if name is empty, then it is set by kernel.
-        .up() // or set it up manually using `sudo ip link set <tun-name> up`.
+    let tun = if matches.get_flag("ipv4_only") {
+        let tun = TunBuilder::new()
+        // if name is empty, then it is set by kernel.
+        .name(tun_name)
         .address(tun_local)
         .destination(tun_peer)
         .netmask(Ipv4Addr::new(255, 255, 255, 255))
+        .up()
+        .try_build_mq(num_cpus)
+        .unwrap();
+        tun
+    } else {
+        let tun = TunBuilder::new()
+        // if name is empty, then it is set by kernel.
+        .name(tun_name)
         .try_build_mq(num_cpus)
         .unwrap();
 
-    if let (Some(tun_local6), Some(tun_peer6)) = (tun_local6, tun_peer6) {
-        assign_ipv6_address(tun[0].name(), tun_local6, tun_peer6);
-    }
+        assign_ipv6_address(tun[0].name(), tun_local6.unwrap(), tun_peer6.unwrap());
+        bring_link_up(tun[0].name());
+        tun
+    };
 
-    info!("Created TUN device {}", tun[0].name());
+    let tun_name = tun[0].name().to_string();
+    info!("Created TUN device {}", tun_name);
 
     //thread::sleep(time::Duration::from_secs(5));
-    let mut stack = Stack::new(tun, tun_local, tun_local6);
+    let mut stack = Stack::new(tun, Some(tun_local), tun_local6);
     stack.listen(local_port);
-    info!("Listening on {}", local_port);
+    info!("Monitoring port {} on incoming of {}", local_port, tun_name);
 
     let main_loop = tokio::spawn(async move {
         let mut buf_udp = [0u8; MAX_PACKET_LEN];
